@@ -6,6 +6,7 @@ const port = 3000;
 app.get("/", async (req, res) => {
   const iciciData = await getICICIOffers();
   const axisData = await getAxisBankOffers();
+  const kotakData = await getKotakBankOffers();
 
   let html = `
     <html>
@@ -49,19 +50,36 @@ app.get("/", async (req, res) => {
           <td><a href="${offer.offerPageLink}" target="_blank">View</a></td>
         `
       )}
+
+      <h1>Kotak Bank Offers</h1>
+      ${generateTable(
+        kotakData,
+        ["Image", "Title", "Description", "Views", "Expiry", "Offer Page"],
+        (offer) => `
+          <td><img src="${offer.img}" /></td>
+          <td>${offer.title}</td>
+          <td>${offer.description}</td>
+          <td>${offer.views}</td>
+          <td>${offer.expiry}</td>
+          <td><a href="${offer.offerPageLink}" target="_blank">View</a></td>
+        `
+      )}
     </body>
     </html>
   `;
 
   res.send(html);
 });
-function generateTable(data, headers, rowBuilder) {
-  let table = `<table><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>`;
-  data.forEach(offer => {
-    table += `<tr>${rowBuilder(offer)}</tr>`;
-  });
-  table += `</table>`;
-  return table;
+
+function generateTable(data, headers, rowMapper) {
+  return `
+    <table>
+      <tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr>
+      ${data
+        .map((offer) => `<tr>${rowMapper(offer)}</tr>`)
+        .join("")}
+    </table>
+  `;
 }
 async function getICICIOffers() {
   let browser;
@@ -128,6 +146,41 @@ async function getAxisBankOffers() {
     await browser?.close();
   }
 }
+async function getKotakBankOffers() {
+  const browser = await puppeteer.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto("https://www.kotak.com/en/offers.html", { waitUntil: "networkidle2", timeout: 60000 });
+
+  await page.waitForSelector(".sif-card");
+
+  const data = await page.evaluate(() => {
+    const offers = [];
+    document.querySelectorAll(".sif-card").forEach(card => {
+      const img = card.querySelector("img.sif-card-img")?.src || "";
+      const title = card.querySelector("h4.card-heading")?.innerText || "";
+      const description = card.querySelector(".card-desc")?.innerText || "";
+      const views = card.querySelector(".views")?.innerText || "";
+      const expiry = card.querySelector(".article-date")?.innerText || "";
+      const offerPageLink = card.querySelector("a.link-card")?.getAttribute("data-href") || "";
+
+      offers.push({
+        img,
+        title,
+        description,
+        views,
+        expiry,
+        offerPageLink: offerPageLink.startsWith("http")
+          ? offerPageLink
+          : `https://www.kotak.com${offerPageLink}`
+      });
+    });
+    return offers;
+  });
+
+  await browser.close();
+  return data;
+}
+
 async function autoScroll(page) {
   await page.evaluate(async () => {
     await new Promise((resolve) => {
